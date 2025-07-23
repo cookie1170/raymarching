@@ -1,5 +1,5 @@
 // ReSharper disable CppTooWideScope
-#pragma kernel CSMain
+#pragma kernel csMain
 
 float time;
 float2 resolution;
@@ -91,22 +91,38 @@ float2 normalizeScreenCoords(float2 screenCoord)
     return result;
 }
 
-[numthreads(8,8,1)]
-void CSMain (uint3 id : SV_DispatchThreadID)
+float3 calculateNormal(float3 pos, float centerDistance)
 {
-    const float distThreshold = 0.001;
+    float epsilon = 0.01; 
+    float xDistance = sdfScene(pos + float3(epsilon, 0, 0)).dist;
+    float yDistance = sdfScene(pos + float3(0, epsilon, 0)).dist;
+    float zDistance = sdfScene(pos + float3(0, 0, epsilon)).dist;
+    float3 normal = (float3(xDistance, yDistance, zDistance) - centerDistance) / epsilon;
+    return normal;
+}
+
+float calcLight(float3 normal, float3 lightDir)
+{
+    return (dot(normal, -lightDir) + 1) / 2.0;
+}
+
+[numthreads(8,8,1)]
+void csMain (uint3 id : SV_DispatchThreadID)
+{
+    const float distThreshold = 0.005;
     const float maxDist = 100.0;
     const int maxIterations = 150;
     const float outlineThreshold = 0;
     const float3 skyColor = float3(0.675, 0.845, 0.95);
-
-    float2 uv = normalizeScreenCoords(id.xy);
-
-    float3 origin = float3(0.0, 0.0, -5.0);
-    float3 dir = normalize(float3(uv, 1.0));
-    float totalDist = 0.0;
+    const float3 light_dir = normalize(float3(-1, -1, 1));
+    const float2 uv = normalizeScreenCoords(id.xy);
+    const float3 origin = float3(0.0, 0.0, -5.0);
+    const float3 dir = normalize(float3(uv, 1.0));
 
     float3 objColor = 0;
+    float3 surfaceNormal = 0;
+    float totalDist = 0.0;
+
     bool didHit = false;
     bool isOutline = false;
     
@@ -122,6 +138,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
         {
             didHit = true;
             isOutline = false;
+            surfaceNormal = calculateNormal(pos, dist);
             break;
         } if (dist < outlineThreshold)
             isOutline = true;
@@ -132,6 +149,8 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     if (isOutline)
         screenTexture[id.xy] = 1;
     else if (didHit)
-        screenTexture[id.xy] = float4(objColor, 1);
+    {
+        screenTexture[id.xy] = float4(objColor, 1) * calcLight(surfaceNormal, light_dir);
+    }
     else screenTexture[id.xy] = float4(skyColor, 1);
 }

@@ -23,7 +23,7 @@ namespace Rendering
 			_cam = GetComponent<Camera>();
 			RenderPipelineManager.endContextRendering += OnEndContextRendering;
 			RenderPipelineManager.beginContextRendering += OnBeginContextRendering;
-			_kernelIndex = shader.FindKernel("CSMain");
+			_kernelIndex = shader.FindKernel("csMain");
 		}
 
 		private void OnBeginContextRendering(ScriptableRenderContext ctx, List<Camera> cameras)
