@@ -1,0 +1,137 @@
+// ReSharper disable CppTooWideScope
+#pragma kernel CSMain
+
+float time;
+float2 resolution;
+RWTexture2D<float4> screenTexture;
+
+struct sdfInfo
+{
+    float dist;
+    float3 color;
+};
+
+struct objectInfo
+{
+    sdfInfo info;
+    float blend;
+};
+
+struct sdfResult
+{
+    float dist;
+    float3 color;
+};
+
+float2 opSmoothUnion(float a, float b, float k)
+{
+    float h = 1.0 - min(abs(a - b) / (4.0 * k), 1.0);
+    float w = h * h;
+    float m = w * 0.5;
+    float s = w * k;
+    return a < b ? float2(a - s, m) : float2(b - s, 1.0 - m);
+}
+
+sdfInfo sdfGround(float3 pos, float groundLevel, float3 color)
+{
+    sdfInfo result;
+    result.dist = pos.y - groundLevel;
+    result.color = color;
+    return result;
+}
+
+sdfInfo sdfSphere(float3 pos, float3 objPos, float radius, float3 color)
+{
+    sdfInfo result;
+    result.dist = length(pos - objPos) - radius;
+    result.color = color;
+    return result;
+}
+
+sdfInfo sdfBox(float3 pos, float3 objPos, float3 dimensions, float3 color)
+{
+    sdfInfo result;
+    pos -= objPos;
+    float3 q = abs(pos) - dimensions;
+    result.dist = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+    result.color = color;
+    return result;
+}
+
+sdfResult sdfScene(float3 pos)
+{
+    float minDist = 100.0;
+    float3 color = 0.0;
+    
+    objectInfo distances[3] = {
+        sdfSphere(pos, float3(sin(time) * 2, 0, 0), 1.0, float3(1, 0.5, 0.5)), 0.5,
+        sdfBox(pos, float3(-sin(time) * 2, 0, 0), 1.0, float3(0.5, 0.5, 1)), 0.5,
+        sdfGround(pos, cos(time) * 0.5 - 1.5, float3(0.5, 1, 0.5)), 0.25
+    };
+
+    for (int i = 0; i < 3; i++)
+    {
+        float2 result = opSmoothUnion(minDist, distances[i].info.dist, distances[i].blend);
+        minDist = result.x;
+        color = lerp(color, distances[i].info.color, result.y);
+    }
+
+    sdfResult result;
+
+    result.dist = minDist;
+    result.color = color;
+
+    return result; 
+}
+
+float2 normalizeScreenCoords(float2 screenCoord)
+{
+    float2 result = 2.0 * (screenCoord / resolution.xy - 0.5);
+    result.x *= resolution.x / resolution.y; // Correct for aspect ratio
+    return result;
+}
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    const float distThreshold = 0.001;
+    const float maxDist = 100.0;
+    const int maxIterations = 150;
+    const float outlineThreshold = 0;
+    const float3 skyColor = float3(0.675, 0.845, 0.95);
+
+    float2 uv = normalizeScreenCoords(id.xy);
+
+    float3 origin = float3(0.0, 0.0, -5.0);
+    float3 dir = normalize(float3(uv, 1.0));
+    float totalDist = 0.0;
+
+    float3 objColor = 0;
+    bool didHit = false;
+    bool isOutline = false;
+    
+    for (int i = 0; i < maxIterations; i++)
+    {
+        float3 pos = origin + dir * totalDist;
+        sdfResult result = sdfScene(pos);
+        float dist = result.dist;
+        objColor = result.color;
+        totalDist += dist;
+
+        if (dist < distThreshold)
+        {
+            didHit = true;
+            isOutline = false;
+            break;
+        } if (dist < outlineThreshold)
+            isOutline = true;
+
+        if (totalDist > maxDist) break;
+    }
+    
+    if (isOutline)
+        screenTexture[id.xy] = 1;
+    else if (didHit)
+        screenTexture[id.xy] = float4(objColor, 1);
+    else screenTexture[id.xy] = float4(skyColor, 1);
+}
