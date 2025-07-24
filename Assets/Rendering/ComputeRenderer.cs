@@ -6,21 +6,21 @@ namespace Rendering
 {
 	public class ComputeRenderer : MonoBehaviour
 	{
+		private static readonly int CamRotationID = Shader.PropertyToID("camRotation");
 		private static readonly int ScreenTextureID = Shader.PropertyToID("screenTexture");
 		private static readonly int ResolutionID = Shader.PropertyToID("resolution");
+		private static readonly int CameraPosID = Shader.PropertyToID("cameraPos");
 		private static readonly int TimeID = Shader.PropertyToID("time");
 
 		[SerializeField] private ComputeShader shader;
 		
 		private RenderTexture _rt;
-		private Camera _cam;
 		private int _kernelIndex;
 
 		private bool _hasBeenRenderedThisFrame;
 
 		private void Awake()
 		{
-			_cam = GetComponent<Camera>();
 			RenderPipelineManager.endContextRendering += OnEndContextRendering;
 			RenderPipelineManager.beginContextRendering += OnBeginContextRendering;
 			_kernelIndex = shader.FindKernel("csMain");
@@ -51,6 +51,8 @@ namespace Rendering
 
 			shader.SetFloat(TimeID, Time.time);
 			shader.SetVector(ResolutionID, resolution);
+			shader.SetVector(CameraPosID, transform.position);
+			shader.SetVector(CamRotationID, new Vector2(transform.eulerAngles.x, transform.eulerAngles.y) * Mathf.Deg2Rad);
 			shader.SetTexture(_kernelIndex, ScreenTextureID, _rt);
 
 			shader.Dispatch(_kernelIndex, _rt.width / 8, _rt.height / 8, 1);
@@ -67,6 +69,7 @@ namespace Rendering
 		{
 			RenderPipelineManager.endContextRendering -= OnEndContextRendering;
 			RenderPipelineManager.beginContextRendering -= OnBeginContextRendering;
+			_rt?.Release();
 		}
 	}
 }
