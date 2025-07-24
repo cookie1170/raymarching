@@ -10,12 +10,12 @@ RWTexture2D<float4> screenTexture;
 struct sdfInfo
 {
     float dist;
-    float3 color;
 };
 
 struct objectInfo
 {
-    sdfInfo sdfInfo;
+    float dist;
+    float3 colour;
     float blend;
     int operation;
 };
@@ -23,7 +23,7 @@ struct objectInfo
 struct sdfResult
 {
     float dist;
-    float3 color;
+    float3 colour;
 };
 
 float2x2 rot2D(const float angle)
@@ -54,41 +54,35 @@ float opSmoothIntersection(float d1, float d2, float k)
     return lerp(d2, d1, h) + k * h * (1.0 - h);
 }
 
-sdfInfo sdfGround(float3 pos, const float groundLevel, const float3 color)
+float sdfGround(float3 pos, const float groundLevel)
 {
-    sdfInfo result;
-    result.dist = pos.y - groundLevel;
-    result.color = color;
+    float result = pos.y - groundLevel;
     return result;
 }
 
-sdfInfo sdfSphere(float3 pos, const float3 objPos, const float radius, const float3 color)
+float sdfSphere(float3 pos, const float3 objPos, const float radius)
 {
-    sdfInfo result;
-    result.dist = length(pos - objPos) - radius;
-    result.color = color;
+    float result = length(pos - objPos) - radius;
     return result;
 }
 
-sdfInfo sdfBox(float3 pos, const float3 objPos, const float3 dimensions, const float3 color)
+float sdfBox(float3 pos, const float3 objPos, const float3 dimensions)
 {
-    sdfInfo result;
     pos -= objPos;
     float3 q = abs(pos) - dimensions;
-    result.dist = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
-    result.color = color;
+    float result = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
     return result;
 }
 
 sdfResult sdfScene(const float3 pos)
 {
     float minDist = 100.0;
-    float3 color = 0.0;
+    float3 colour = 0.0;
     
     objectInfo objects[3] = {
-        sdfGround(pos, cos(time) * 0.5 - 1.5, float3(0.5, 1, 0.5)), 0.25, 0,
-        sdfBox(pos, float3(0, -sin(time) * 2, 0), 1.0, float3(0.5, 0.5, 1)), 0.5, 0,
-        sdfSphere(pos, float3(0, sin(time) * 2, 0), 1.0, float3(1, 0.5, 0.5)), 0.5, 1,
+        sdfGround(pos, cos(time) * 0.5 - 1.5), float3(0.5, 1, 0.5), 0.25, 0,
+        sdfBox(pos, float3(0, -sin(time) * 2, 0), 1.0), float3(0.5, 0.5, 1), 0.5, 0,
+        sdfSphere(pos, float3(0, sin(time) * 2, 0), 1.0), float3(1, 0.5, 0.5), 0.5, 1,
     };
 
     for (int i = 0; i < 3; i++)
@@ -98,16 +92,16 @@ sdfResult sdfScene(const float3 pos)
         switch (info.operation)
         {
         default:
-            float2 resultUnion = opSmoothUnion(minDist, info.sdfInfo.dist, info.blend);
+            float2 resultUnion = opSmoothUnion(minDist, info.dist, info.blend);
             minDist = resultUnion.x;
-            color = lerp(color, info.sdfInfo.color, resultUnion.y);
+            colour = lerp(colour, info.colour, resultUnion.y);
             break;
         case 1:
-            float resultSub = opSmoothSubtraction(info.sdfInfo.dist, minDist, info.blend);
+            float resultSub = opSmoothSubtraction(info.dist, minDist, info.blend);
             minDist = resultSub;
             break;
         case 2:
-            float resultInter = opSmoothIntersection(minDist, info.sdfInfo.dist, info.blend);
+            float resultInter = opSmoothIntersection(minDist, info.dist, info.blend);
             minDist = resultInter;
             break;
         }
@@ -116,7 +110,7 @@ sdfResult sdfScene(const float3 pos)
     sdfResult result;
 
     result.dist = minDist;
-    result.color = color;
+    result.colour = colour;
 
     return result; 
 }
@@ -178,7 +172,7 @@ void csMain (uint3 id : SV_DispatchThreadID)
     const float maxDist = 100.0;
     const int maxIterations = 150;
     const float outlineThreshold = 0;
-    const float3 skyColor = float3(0.675, 0.845, 0.95);
+    const float3 skyColour = float3(0.675, 0.845, 0.95);
     const float3 lightDir = normalize(float3(-1, -3, 1));
     const float2 uv = normalizeScreenCoords(id.xy);
     const float3 origin = cameraPos;
@@ -188,7 +182,7 @@ void csMain (uint3 id : SV_DispatchThreadID)
     dir.yz = mul(dir.yz, rot2D(-camRotation.x));
     dir.xz = mul(dir.xz, rot2D(camRotation.y));
 
-    float3 objColor = 0;
+    float3 objColour = 0;
     float3 surfaceNormal = 0;
     float totalDist = 0.0;
 
@@ -200,7 +194,7 @@ void csMain (uint3 id : SV_DispatchThreadID)
         float3 pos = origin + dir * totalDist;
         sdfResult result = sdfScene(pos);
         float dist = result.dist;
-        objColor = result.color;
+        objColour = result.colour;
         totalDist += dist;
 
         if (dist < distThreshold)
@@ -221,7 +215,7 @@ void csMain (uint3 id : SV_DispatchThreadID)
     {
         float3 pos = origin + dir * totalDist;
         float mult = calcShadow(pos, lightDir) ? shadowStrength : calcLight(surfaceNormal, lightDir , dir, 1.0);
-        screenTexture[id.xy] = float4(lerp(objColor * mult, skyColor, pow(totalDist / maxDist, 2)), 1);
+        screenTexture[id.xy] = float4(lerp(objColour * mult, skyColour, pow(totalDist / maxDist, 2)), 1);
     }
-    else screenTexture[id.xy] = float4(skyColor, 1);
+    else screenTexture[id.xy] = float4(skyColour, 1);
 }
