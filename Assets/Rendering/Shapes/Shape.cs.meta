@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 9b2b56ba1a454eebae91949f48d19aa7
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - sphereMesh: {fileID: 10207, guid: 0000000000000000e000000000000000, type: 0}
+  - boxMesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+  - planeMesh: {fileID: 10209, guid: 0000000000000000e000000000000000, type: 0}
+  - material: {fileID: 2100000, guid: 381de6cff85de5683828b35d6cb77a98, type: 2}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

@@ -1,22 +1,24 @@
 // ReSharper disable CppTooWideScope
 #pragma kernel csMain
 
-float time;
-float2 camRotation;
-float2 resolution;
-float3 cameraPos;
-RWTexture2D<float4> screenTexture;
-
-struct sdfInfo
+struct shapeTransform
 {
-    float dist;
+    float3 position;
+    float3 rotation;
 };
 
-struct objectInfo
+struct shapeInfo
 {
-    float dist;
-    float3 colour;
-    float blend;
+    float3 dimensions;
+    float blendAmount;
+};
+
+struct shape
+{
+    float4 colour;
+    shapeTransform transform;
+    shapeInfo info;
+    int type;
     int operation;
 };
 
@@ -25,6 +27,13 @@ struct sdfResult
     float dist;
     float3 colour;
 };
+
+float time;
+float2 camRotation;
+float2 resolution;
+float3 cameraPos;
+RWTexture2D<float4> screenTexture;
+StructuredBuffer<shape> shapes;
 
 float2x2 rot2D(const float angle)
 {
@@ -54,59 +63,70 @@ float opSmoothIntersection(float d1, float d2, float k)
     return lerp(d2, d1, h) + k * h * (1.0 - h);
 }
 
-float sdfGround(float3 pos, const float groundLevel)
+float sdfPlane(float3 pos, const shape shape)
 {
-    float result = pos.y - groundLevel;
+    pos -= shape.transform.position;
+    return dot(pos, normalize(shape.info.dimensions));
+}
+
+float sdfSphere(float3 pos, const shape shape)
+{
+    pos -= shape.transform.position;
+    float result = length(pos) - shape.info.dimensions.x;
     return result;
 }
 
-float sdfSphere(float3 pos, const float3 objPos, const float radius)
+float sdfBox(float3 pos, const shape shape)
 {
-    float result = length(pos - objPos) - radius;
-    return result;
-}
-
-float sdfBox(float3 pos, const float3 objPos, const float3 dimensions)
-{
-    pos -= objPos;
-    float3 q = abs(pos) - dimensions;
+    pos -= shape.transform.position;
+    float3 q = abs(pos) - shape.info.dimensions;
     float result = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
     return result;
+}
+
+float sdfShape(float3 pos, shape shape)
+{
+    switch (shape.type)
+    {
+    default:
+        return sdfSphere(pos, shape);
+    case 1:
+        return sdfBox(pos, shape);
+    case 2:
+        return sdfPlane(pos, shape);
+    }
 }
 
 sdfResult sdfScene(const float3 pos)
 {
     float minDist = 100.0;
     float3 colour = 0.0;
+
+    uint count;
+    // ReSharper disable once CppEntityAssignedButNoRead
+    uint stride;
+    // ReSharper disable once CppAssignedValueIsNeverUsed
+    shapes.GetDimensions(count, stride);
     
-    objectInfo objects[3] = {
-        sdfGround(pos, cos(time) * 0.5 - 1.5), float3(0.5, 1, 0.5), 0.25, 0,
-        sdfBox(pos, float3(0, -sin(time) * 2, 0), 1.0), float3(0.5, 0.5, 1), 0.5, 0,
-        sdfSphere(pos, float3(0, sin(time) * 2, 0), 1.0), float3(1, 0.5, 0.5), 0.5, 1,
-    };
-
-    for (int i = 0; i < 3; i++)
+    for (uint i = 0; i < count; i++)
     {
-        objectInfo info = objects[i];
-
-        switch (info.operation)
+        shape shape = shapes[i];
+        float dist = sdfShape(pos, shape);
+        switch (shape.operation)
         {
         default:
-            float2 resultUnion = opSmoothUnion(minDist, info.dist, info.blend);
-            minDist = resultUnion.x;
-            colour = lerp(colour, info.colour, resultUnion.y);
+            float2 result = opSmoothUnion(dist, minDist, shape.info.blendAmount);
+            minDist = result.x;
+            colour = lerp((float3)shape.colour, colour, result.y);
             break;
         case 1:
-            float resultSub = opSmoothSubtraction(info.dist, minDist, info.blend);
-            minDist = resultSub;
+            minDist = opSmoothSubtraction(dist, minDist, shape.info.blendAmount);
             break;
         case 2:
-            float resultInter = opSmoothIntersection(minDist, info.dist, info.blend);
-            minDist = resultInter;
+            minDist = opSmoothIntersection(dist, minDist, shape.info.blendAmount);
             break;
         }
     }
-
     sdfResult result;
 
     result.dist = minDist;
